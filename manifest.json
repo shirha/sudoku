@@ -1,0 +1,20 @@
+{
+  "short_name": "Sudoku",
+  "icons": [
+    {
+      "src": "favicon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "favicon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/shirha/raw/f7299bf9862dd7f8c1c3b30d909ab5ff/index.html",
+  "background_color": "#e8f0fe",
+  "display": "standalone",
+  "scope": "/",
+  "theme_color": "#e8f0fe"
+}

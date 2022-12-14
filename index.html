@@ -1,0 +1,332 @@
+<!DOCTYPE html><html><head><title>Sudoku</title>
+<meta charset="utf-8">
+<link href="reset.css" rel="stylesheet">
+<link rel="manifest" href="manifest.json">
+<link rel="shortcut icon" type="image/png" href="favicon-512.png">
+<style TYPE="text/css">
+body { margin: 8px; background-image: url("gray5.jpg"); }
+form { margin: 8px; }
+#zom { margin-left: 5px; background: white; display: inline-block; }
+#puz { border: 1px solid black; background: white; display: inline-block; }
+.s   { background-size:  340px  68px; border: 0px solid white; width: 33px; height: 33px; font-size: 18pt; }
+.l   { background-size: 1000px 200px; border: 1px solid gray ; width: 99px; height: 99px; font-size: 42pt; }
+.q   { border: 1px solid black; }
+td   { vertical-align: middle; text-align: center; font-weight: bold; font-family: Arial; cursor: default; }
+input, select { margin: 5px; width: 123px; height: 70px; font-size: 32px; }
+select[name="gamelist"] { width: 170px; }
+button { margin: 5px; }
+.silver { background-color: silver; }
+</style>
+</head><body onLoad="init()"><form><table><tr>
+<td><button><img src="clip.png" height="61px" onClick="copy()">
+<td><input type=button value="Solve" onClick="setp()">
+<td><input type=button value="Reset" onClick="getp()">
+<td><input type=button value="Back"  onClick="back()">
+<td><input type=button value="Next"  onClick="next()">
+<td><div id="game"></div>
+<td><div>
+  <select onChange=optn(this)>
+    <option value=48 selected>B&amp;W
+    <option value= 4>Sqrs
+    <option value=20>Sqrs1
+    <option value=52>Sqrs2
+    <option value= 1>Dots
+    <option value=17>Dots1
+    <option value=49>Dots2
+    <option value= 2>Gems
+    <option value=18>Gems1
+    <option value=50>Gems2
+  </select></div>
+</table></form>
+  <div id="puz"></div><br>
+  <div id="zom"></div>
+<script LANGUAGE="JavaScript" SRC="https://unpkg.com/jquery@1.12.4/dist/jquery.min.js"></script>
+<script LANGUAGE="JavaScript" SRC="puzzler_all.js"></script>
+<script LANGUAGE="JavaScript">
+Array.prototype.last = function() { return this[this.length - 1]; }
+var OPTS=48, DOTS=1, GEMS=2, SQRS=4, LNUM=16, SNUM=32, lg=100, sm=34,
+  bgColors = ['#c0c0c0', 'red',  'lime',    'yellow', 'blue', 'fuchsia', 'aqua', 'white', 'black', '#ff7f00'],
+  txColors = ['#c0c0c0', 'aqua', 'fuchsia', 'blue', 'yellow', 'lime',    'red',  'black', 'white', '#0080ff'],
+  stack = [], marks = [], snapshot = [], m, elem, solve = 1, dbg = 0; // depth = 0, pinned, forced;
+
+function init() {
+  $('#zom').hide(); m = zeros;
+
+  // dynamically create gamelist from "data" hash (puzzler_all.js)
+  var a = '<select name="gamelist" onchange=getp()>';
+  for (var d in data) { a += '<option>' + d; }
+  a += '</select>';
+  document.getElementById('game').innerHTML = a;
+
+  // retrieve localstorage for saved gamelist selectedindex
+  var s = localStorage.getItem("gist-sudoku");
+  document.forms[0].gamelist.selectedIndex = s || 1550;
+
+  // create puzzle basic structure
+  var q = '<table>';
+  for (var h = 0; h < 3; h++) { q += '\n<tr>';
+  for (var w = 0; w < 3; w++) { q += '<td><div class=q><table>';
+  for (var r = 0; r < 3; r++) { q += '<tr>';
+  for (var c = 0; c < 3; c++) { q += '<td class=l id=i' + h + w + r + c + '>';
+  }} q += '</table>';
+  }} q += '</table>';
+  document.getElementById('puz').innerHTML = q;
+
+  document.onclick = handler;
+  console.log('init');
+  if (dbg & 1) console.log(q);
+  getp();
+}
+function optn(list) {
+  // retrieve selection option cell pieces
+  console.log('opt', list.value);
+  OPTS = list.value;
+  disp(true);
+}
+function back() {
+  // undo last stored guess
+  console.log('back');
+  if (snapshot.length > 0) {
+    getp();
+  } else {
+    if (stack.length > 0) {
+      var a = stack.pop();
+      m[a[0]][a[1]][a[2]][a[3]] = 0;
+      while(marks.length && marks.last().last() > stack.length) marks.pop();
+      disp();
+} } }
+function next() { 
+  // init next game from list
+  console.log('next');
+  document.forms[0].gamelist.selectedIndex++;
+  snapshot = [];
+  getp();
+}
+function getp() { 
+  console.log('getp',snapshot);
+
+  // store gamelist selectedindex in localstorage
+  var e = document.forms[0].gamelist;
+  localStorage.setItem("gist-sudoku", e.selectedIndex);
+  var len = snapshot.length;
+  if (!len) { 
+
+    // initialize puzzle data model "m"
+    snapshot = data[ e.options[e.selectedIndex].text ].match(/\d/g);
+    //m        = $.extend(true, [], zeros);
+    stack    = [];
+    marks    = [];
+  }
+  for (var h = 0; h < 3; h++) {
+  for (var r = 0; r < 3; r++) {
+  for (var w = 0; w < 3; w++) {
+  for (var c = 0; c < 3; c++) {
+    var i = parseInt( snapshot.shift() );
+    m[h][w][r][c] = i;
+    if (i && !len) 
+      stack.push( [h, w, r, c, ":", i] );      
+  }}}}
+  if (dbg & 2) console.log('stack=',JSON.stringify(stack));
+  if (dbg & 2) console.log('m=', JSON.stringify(m));
+  disp();
+}
+function setp() {
+  // take a snapshot of puzzle before solver
+  // this is done to support the back method
+  console.log('setp');
+  // if (!stack.length) return false; // menneske.no
+  snapshot = [];
+  for (var h = 0; h < 3; h++) {
+  for (var r = 0; r < 3; r++) {
+  for (var w = 0; w < 3; w++) {  
+  for (var c = 0; c < 3; c++) {
+    snapshot.push(m[h][w][r][c]);
+  }}}}
+  console.log(snapshot.join(''));
+  solve=1; solv(); disp();
+}
+
+function solv() {
+  // js solver derived from sudoku.pl
+  for (var h = 0; h < 3; h++) {
+  for (var w = 0; w < 3; w++) {
+  for (var r = 0; r < 3; r++) {
+  for (var c = 0; c < 3; c++) {
+    if (m[h][w][r][c] == 0) {
+      var t = [0,0,0,0,0,0,0,0,0,0];
+      for (var i = 0; i < 3; i++) { 
+      for (var j = 0; j < 3; j++) { 
+        t[m[h][w][i][j]] = 1;
+        t[m[h][i][r][j]] = 1;
+        t[m[i][w][j][c]] = 1;
+      } }
+      for (var i = 1; i < 10; i++) { 
+        if (t[i] == 0) {
+          if (solve) {
+            m[h][w][r][c] = i;
+            solv(); 
+      } } }
+      if (solve) {
+        return m[h][w][r][c] = 0; // purpose?
+    } }
+  }}}}
+  solve = 0;
+//  depth = 0;
+//  stack=new Array();
+}
+function disp(fOpt) {
+  console.log('disp', fOpt);
+  for (var h = 0; h < 3; h++) {
+  for (var w = 0; w < 3; w++) {
+  for (var r = 0; r < 3; r++) {
+  for (var c = 0; c < 3; c++) {
+    var e = document.getElementById('i' + h + w + r + c),
+        p = m[h][w][r][c];
+
+    // if puzzle position is unsolved (0) then display pencilmarks
+    if (p == 0) {
+      if (e.style.backgroundColor == "silver")
+          e.style.backgroundColor = OPTS&SQRS?bgColors[e.title]:'';
+      var t = [0,0,0,0,0,0,0,0,0,0];
+      for (var i = 0; i < 3; i++) { 
+      for (var j = 0; j < 3; j++) { 
+        t[m[h][w][i][j]] = 1; // 3 x 3
+        t[m[h][i][r][j]] = 1; // horizontal
+        t[m[i][w][j][c]] = 1; // vertical
+      }}
+
+      // initialize cell if pencilmarks table absent
+      if (e.innerHTML.length < 2) { 
+        e.title = '';
+        e.style.color = '';
+        e.style.backgroundImage = ''; 
+        e.style.backgroundPosition = '';
+        e.innerHTML = '<table><tr><td><td><td><tr><td><td><td><tr><td><td><td></table>';
+      }
+      // store pencilmarks small font values into table using clik function
+      var o = e.getElementsByTagName('td');
+      if (dbg & 4) console.log(o);
+      for (var i = 0; i < o.length; i++) {
+        var n = t[i + 1] ? 0 : (i + 1);
+        if (fOpt || o[i].className != 's' || o[i].title != n) {
+          o[i].title = n ? n : '';
+          o[i].className = 's';
+          clik(o[i], n);
+          if (dbg & 4) console.log('clik', o[i], n);
+      } }
+    } else {
+      // store large font puzzle values (1..9) into cell 
+      if (fOpt || e.title != p) {
+        e.title                    = p;
+        e.innerHTML                = OPTS&LNUM?p:'';
+        e.style.color              = OPTS&(GEMS|DOTS|SQRS)?txColors[p]:'';
+        e.style.backgroundColor    = OPTS&SQRS?bgColors[p]:'';
+        e.style.backgroundImage    = OPTS&(GEMS|DOTS)?'url(puzzle_l.bmp)':'';
+        e.style.backgroundPosition =(OPTS&(GEMS|DOTS)?(-lg*p)+'px':'') + ' ' +
+                                    (OPTS&GEMS?-lg+'px':OPTS&DOTS?0+'px':'');
+    } }
+  }}}} 
+  // remove deleted pencilmarks using clik function if still valid
+  marks.map(a => {
+    var c = $('#i' + a[0] + a[1] + a[2] + a[3]).find('td');
+    if (c.length) clik(c[a[5] - 1], 0);
+  });
+}
+function handler() {
+  console.log('handler');
+  $('.silver').removeClass('silver');
+  var e = window.event.srcElement;
+
+  // is click outside of any table or on a large font cell? (guess)
+  // then hilight the large font cell
+  // note. if a cell is hilighted, stop deleting pencilmarks !! 
+  if (!(e.nodeName=='TD') || e.id) {
+    $('#zom').hide();
+    if (e.id) 
+      e.style.backgroundColor = e.style.backgroundColor == "silver" ? 
+        OPTS&SQRS?bgColors[e.title] : '' : "silver"; 
+    return false;
+  }
+  // was click inside the zoom box?
+  var zoom = event.target.closest('div').id == 'zom';
+  if (zoom) {
+    // exit if empty cell inside zoom box was clicked
+    if (!e.title) return false; 
+    var a = elem.parentElement.id
+          .match(/\d/g)
+          .map(n => parseInt(n)),
+        n = parseInt(e.title);
+    // was delete pencilmark (×) clicked?
+    if (e.parentElement.className == 'mark') { 
+      marks.push( a.concat(":", n, stack.length) );
+      var c = $(elem).find('td'),
+          z = $('#zom').find('td');
+      clik(c[n - 1], 0);
+      z[n - 1].innerHTML = '';
+      z[n + 8].innerHTML = '';
+      $(elem.parentElement).addClass('silver');
+      console.log('clik');
+    } else {
+      // store guess in model "m"
+      stack.push( a.concat(":", n) );
+      m[a[0]][a[1]][a[2]][a[3]] = n;
+      $('#zom').hide();
+      disp();
+    } 
+  } else {
+    // handle click in puzzle box
+    $('#zom').hide();
+    elem = event.target.closest('table');
+    var t = elem.innerHTML
+      .match(/title="\d"/g)
+      .map(t => t.match(/\d/));
+    // was there only one pencilmark? 
+    // then store guess in model "m" and display
+    if (t.length == 1) {
+      var a = elem.parentElement.id.match(/\d/g),
+          n = t[0];
+      stack.push( a.concat(":", n) );
+      m[a[0]][a[1]][a[2]][a[3]] = n;
+      disp();
+    } else {
+      // multiple pencilmarks so show zoom box
+      // and hilight pencilmarks table
+      var tbl = elem.firstChild.innerHTML
+            .replace(/class="s"/g, 'class="l"')
+            .replace(/puzzle_s/g,  'puzzle_l')
+            .replace(/<\/tr><tr>/g, '')
+            .replace(/(-?\d+)px (-?\d+)px/g, (match, x, y) => 
+              (parseInt(x) * lg / sm) + "px " + 
+              (parseInt(y) * lg / sm) + "px"),
+          td = [1,2,3,4,5,6,7,8,9]
+            .map(i => '<td class="l" ' + (t.map(a => parseInt(a[0]))
+            .includes(i) ? `title="${i}">×` : '>&nbsp;'))
+            .join('');
+      $('#zom').html( `<table>${tbl}<tr class="mark">${td}` ).show();
+      $(elem.parentElement).addClass('silver');
+} } }
+function clik(e, n) {
+  // set pencilmark given cell and value
+  if (dbg & 4) console.log(e,n);
+  e.title                    = n?n:'';
+  e.innerHTML                = OPTS&SNUM?(n?n:'&nbsp;'):'';
+  e.style.color              = OPTS&(GEMS|DOTS|SQRS)?txColors[n]:'';
+  e.style.backgroundColor    = OPTS&SQRS?bgColors[n]:'';
+  e.style.backgroundImage    = OPTS&(GEMS|DOTS)?'url(puzzle_s.bmp)':'';
+  e.style.backgroundPosition =(OPTS&(GEMS|DOTS)?(-sm*n)+'px':'') + ' ' +
+                              (OPTS&GEMS?-sm+'px':OPTS&DOTS?0+'px':'');
+}
+// back works but must re-paste to reset puzzle
+function copy() {
+  navigator.clipboard.readText().then(text => {
+    var notepad = `${text}\r`.replace(/( )[\t\r]/gm, '0').match(/\d/g);
+    console.log(notepad);    //  ^ support for menneske.no 
+    if (notepad.length == 81) {
+      snapshot = notepad;
+      stack = [];
+      marks = [];
+      getp();
+}});}
+// http://www.sudokuwiki.org/Getting_Started
+// http://www.menneske.no/sudoku/eng/random.html
+</script></body></html>
